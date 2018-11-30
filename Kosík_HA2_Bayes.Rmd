@@ -2,7 +2,7 @@
 title: "bayes_HA_2"
 author: "Martin Kosík"
 date: "19 listopadu 2018"
-output: pdf_document
+output: github_document
 editor_options: 
   chunk_output_type: console
 ---
