@@ -1,0 +1,177 @@
+---
+title: "bayes_HA_2"
+author: "Martin Kosík"
+date: "19 listopadu 2018"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(stargazer)
+```
+## Problem 1
+1. Since all obsevations in both control and treatment groups are independent of each other we can write their joint likelihood as a product of individual likelihoods (which are )
+$$p(y|\mu_t, \mu_c, \sigma_t, \sigma_c) = \prod_{i=1}^{36} N(y_{ti}|\mu_t, \sigma_t^2) * \prod_{i=1}^{32} N(y_{ci}|\mu_c, \sigma_c^2)$$
+
+Then using the Bayes rule, the derived likelihood from above and the fact that we have uniform prior we can write that the posterior is:
+$$p(\mu_t, \mu_c, log(\sigma_t), log(\sigma_c) |y) = p(\mu_t, \mu_c, log(\sigma_t), log(\sigma_c)) \cdot p(y|\mu_t, \mu_c, log(\sigma_t), log(\sigma_c)) = 
+1 * \prod_{i=1}^{36} N(y_{ti}|\mu_t, \sigma_t^2) * \prod_{i=1}^{32} N(y_{ci}|\mu_c, \sigma_c^2)$$
+
+2. We draw 25000 samples from the posterior distribution of means derived above and then we take their difference. The code is shown below.
+
+```{r}
+set.seed(2511)
+n_of_draws <- 25000
+mu.t <- 1.173 + (0.20/sqrt(36)) * rt(n_of_draws,35)
+mu.c <- 1.013 + (0.24/sqrt(32)) * rt(n_of_draws,31)
+dif <- mu.t - mu.c
+#hist (dif, xlab="mu_t - mu_c", yaxt="n",
+#breaks=seq(-.1,.4,.02), cex=2)
+
+
+ggplot() + aes(dif)+ geom_histogram(aes(y=..density..),bins = 50) + 
+  labs(title = expression(paste("histogram of ", mu[t] - mu[c])), x = expression(mu[t] - mu[c])) +  theme_light()
+quantile(dif, c(0.025, 0.975))
+
+```
+
+The approximate 95% confidence interval then is (0.050, 0.269). 
+
+
+## Problem 2
+### 1)
+
+
+```{r cars}
+rm(list = ls())
+
+y <- c(28, 8, -3, 7, 1, 1, 18, 12)
+sigma <- c(15, 10, 16, 11, 9, 11, 10, 18)
+mu_hat <- function(tau, y, sigma){
+sum(y/(sigma^2 + tau^2))/sum(1/(sigma^2 + tau^2))
+}
+
+V_mu <- function(tau, y, sigma){
+1/sum(1/(tau^2 + sigma^2))
+}
+
+n_grid <- 2000
+tau_grid <- seq(0.01, 100, length=n_grid)
+log_p_tau <- rep(NA, n_grid)
+for (i in 1:n_grid){
+  mu <- mu_hat(tau_grid[i], y, sigma)
+  V <- V_mu(tau_grid[i], y, sigma)
+  log_p_tau[i] <-  0.5*log(V) - .5*sum(log(sigma^2 + tau_grid[i]^2)) -0.5*sum((y-mu)^2/(sigma^2 + tau_grid[i]^2))
+}
+
+```
+We compute the posterior density for τ on the log scale and rescale it to eliminate the possibility
+of computational overflow or underflow that can occur when multiplying many factors.
+
+```{r}
+log_p_tau <- log_p_tau - max(log_p_tau)
+p_tau <- exp(log_p_tau)
+p_tau <- p_tau/sum(p_tau)
+n_sims <- 1000
+tau <- sample(tau_grid, n_sims, replace=TRUE, prob = p_tau)
+```
+
+The last step draws the simulations of τ from the approximate discrete distribution. The
+remaining steps are sampling from normal conditional distributions for µ and the θj ’s as in
+Section 5.4. The sampled values of the eight θj ’s are collected in an array
+```{r}
+J <- length(y)
+mu <- rep(NA, n_sims)
+theta <- array(NA, c(n_sims,J))
+for (i in 1:n_sims){
+mu[i] <- rnorm(1, mu_hat(tau[i],y,sigma), sqrt(V_mu(tau[i],y,sigma)))
+theta_mean <- (mu[i]/tau[i]^2 + y/sigma^2)/(1/tau[i]^2 + 1/sigma^2)
+theta_sd <- sqrt(1/(1/tau[i]^2 + 1/sigma^2))
+theta[i,] <- rnorm(J, theta_mean, theta_sd)
+}
+as.data.frame(theta) %>% 
+  map(mean)
+theta_d <-  as.data.frame(theta)
+
+school_names <- c("A", "B", "C", "D", "E", "F", "G", "H")
+
+the_highest_theta <- apply(theta, 1, which.max)
+best_school <- map_dbl(1:8, ~ mean(the_highest_theta == .))
+names(best_school) <- school_names
+
+stargazer(best_school, summary = F, title = "Probability that the course is the best the 8 schools")
+
+map(array_branch(theta, 2), mean)
+apply(theta, 2, mean)
+
+compar_matrix <- matrix(NA, nrow = 8, ncol = 8)
+
+for(i in 1:8){
+  for(k in 1:8){
+    compar_matrix[i, k] <- mean(theta[, i] > theta[, k])
+}}
+array_tree(theta)
+
+compar_df <- as.data.frame(compar_matrix)
+names(compar_df) <- school_names
+row.names(compar_df) <- school_names
+
+stargazer(compar_df, summary = F,
+          title = " Probability that the course in row school is better than that in column school")
+
+map(as.list(theta_d), mean)
+theta_d %>% 
+  rowwise(which.max)
+```
+
+### 2)
+```{r}
+set.seed(2510)
+y <- c(28, 8, -3, 7, 1, 1, 18, 12)
+sigma <- c(15, 10, 16, 11, 9, 11, 10, 18)
+nsims <- 1e7
+fake_data <- matrix(NA, nrow = nsims, ncol = 8)
+
+for(k in 1:8){
+    fake_data[ , k] <- rnorm(nsims, mean = y[k] , sd = sigma[k])
+  }
+
+the_highest_theta <- apply(fake_data, 1, which.max)
+best_school <- map_dbl(1:8, ~ mean(the_highest_theta == .))
+names(best_school) <- school_names
+
+stargazer(best_school, summary = F, title = "Probability that the course is the best the 8 schools")
+
+
+compar_matrix_2 <- matrix(NA, nrow = 8, ncol = 8)
+
+for(i in 1:8){
+  for(k in 1:8){
+    compar_matrix_2[i, k] <- pnorm(0, mean = y[k] - y[i], sd = sqrt(sigma[i]^2 + sigma[k]^2))
+  }}
+
+for(i in 1:8){
+  for(k in 1:8){
+    compar_matrix_2[i, k] <- pnorm((y[i] - y[k])/sqrt(sigma[i]^2 + sigma[k]^2), mean = 0, sd = 1)
+  }}
+
+diag(compar_matrix_2) <- 0
+
+compar_df2 <- as.data.frame(compar_matrix_2)
+names(compar_df2) <- school_names
+row.names(compar_df2) <- school_names
+
+stargazer(compar_df2, summary = F,
+          title = " Probability that the course in row school is better than course in column school")
+
+
+
+
+
+```
+
+### 3)
+
